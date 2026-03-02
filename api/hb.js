@@ -1,133 +1,136 @@
-export const config = { runtime: 'edge' };
-
-var SECRET_KEY = 'avci_hb_2026';
-var CORS_HEADERS = {
-  'Content-Type': 'application/json',
-  'Access-Control-Allow-Origin': '*'
-};
-
-export default async function handler(request) {
-  // OPTIONS preflight
-  if (request.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers: CORS_HEADERS });
-  }
-
-  var url = new URL(request.url);
-  var key = url.searchParams.get('key');
-  if (key !== SECRET_KEY) {
-    return new Response('{"error":"unauthorized"}', { status: 403, headers: CORS_HEADERS });
-  }
-
-  var action = url.searchParams.get('action') || 'fetch';
-
-  // IP kontrolu
-  if (action === 'ip') {
-    var resp = await fetch('https://api.ipify.org?format=json');
-    var body = await resp.text();
-    return new Response(body, { status: 200, headers: CORS_HEADERS });
-  }
-
-  // --- Tekli fetch ---
-  if (action === 'fetch') {
-    var sku = url.searchParams.get('sku');
-    var slug = url.searchParams.get('slug');
-    if (!sku || !slug) {
-      return new Response('{"error":"sku ve slug gerekli"}', { status: 400, headers: CORS_HEADERS });
-    }
-    var result = await fetchHB(sku, slug);
-    return new Response(JSON.stringify(result), { status: result.error ? 502 : 200, headers: CORS_HEADERS });
-  }
-
-  // --- Toplu fetch (POST body: [{sku, slug, id}, ...]) ---
-  if (action === 'batch') {
-    var body;
-    try {
-      body = await request.json();
-    } catch (e) {
-      return new Response('{"error":"gecersiz JSON body"}', { status: 400, headers: CORS_HEADERS });
-    }
-    if (!Array.isArray(body) || body.length === 0) {
-      return new Response('{"error":"body array olmali"}', { status: 400, headers: CORS_HEADERS });
-    }
-    // Max 10 urun per batch - hepsi paralel
-    if (body.length > 10) {
-      body = body.slice(0, 10);
-    }
-
-    var results = await Promise.all(body.map(function(item) {
-      var t0 = Date.now();
-      return fetchHB(item.sku, item.slug).then(function(res) {
-        res.id = item.id || null;
-        res.sku = item.sku;
-        res.duration_ms = Date.now() - t0;
-        return res;
-      });
-    }));
-
-    return new Response(JSON.stringify({ results: results }), { status: 200, headers: CORS_HEADERS });
-  }
-
-  return new Response('{"error":"gecersiz action"}', { status: 400, headers: CORS_HEADERS });
-}
-
-async function fetchHB(sku, slug) {
-  var apiUrl = 'https://www.hepsiburada.com/api/v1/productDetail/sku/' + sku + '?name=' + slug;
-  var referer = 'https://www.hepsiburada.com/' + slug + '-p-' + sku;
-
-  try {
-    var resp = await fetch(apiUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-        'Accept': '*/*',
-        'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
-        'Referer': referer,
-        'Origin': 'https://www.hepsiburada.com',
-        'sec-ch-ua': '"Google Chrome";v="131", "Chromium";v="131"',
-        'sec-ch-ua-mobile': '?0',
-        'sec-ch-ua-platform': '"Windows"',
-        'sec-fetch-dest': 'empty',
-        'sec-fetch-mode': 'cors',
-        'sec-fetch-site': 'same-origin'
-      }
-    });
-
-    var text = await resp.text();
-
-    if (resp.status !== 200) {
-      return { error: 'HTTP ' + resp.status, status_code: resp.status };
-    }
-
-    var data;
-    try {
-      data = JSON.parse(text);
-    } catch (e) {
-      return { error: 'JSON parse hatasi', raw_length: text.length };
-    }
-
-    // Redirect kontrolu
-    if (data.redirection && data.redirection.url && (!data.data || !data.data.product)) {
-      return { redirect: true, redirect_url: data.redirection.url, statusCode: data.statusCode || 0 };
-    }
-    if (data.redirectUrl && (!data.data || !data.data.product)) {
-      return { redirect: true, redirect_url: data.redirectUrl, statusCode: data.statusCode || 0 };
-    }
-
-    // Stok kontrolu
-    var product = (data.data && data.data.product) ? data.data.product : null;
-    var inStock = product && product.stockInformation && product.stockInformation.isInStock === true;
-
-    if (product && !inStock) {
-      return {
-        success: true,
-        in_stock: false,
-        product_name: product.name || '',
-        data: data
-      };
-    }
-
-    return { success: true, in_stock: true, data: data };
-
-  } catch (e) {
-    return { error: e.message || 'fetch hatasi' };
-  }
-}
+   1 +import https from 'https';                                                                                                                                
+        2 +                                                                                                                                                          
+        3 +var SECRET_KEY = 'avci_hb_2026';                                                                                                                          
+        4 +                                                                                                                                                          
+        5 +export default async function handler(req, res) {                                                                                                         
+        6 +  res.setHeader('Access-Control-Allow-Origin', '*');                                                                                                      
+        7 +  res.setHeader('Content-Type', 'application/json');                                                                                                      
+        8 +                                                                                                                                                          
+        9 +  if (req.method === 'OPTIONS') {                                                                                                                         
+       10 +    return res.status(204).end();                                                                                                                         
+       11 +  }                                                                                                                                                       
+       12 +                                                                                                                                                          
+       13 +  var key = req.query.key;                                                                                                                                
+       14 +  if (key !== SECRET_KEY) {                                                                                                                               
+       15 +    return res.status(403).json({ error: 'unauthorized' });                                                                                               
+       16 +  }                                                                                                                                                       
+       17 +                                                                                                                                                          
+       18 +  var action = req.query.action || 'fetch';                                                                                                               
+       19 +                                                                                                                                                          
+       20 +  // IP kontrolu                                                                                                                                          
+       21 +  if (action === 'ip') {                                                                                                                                  
+       22 +    var ipData = await httpGet('https://api.ipify.org?format=json', {});                                                                                  
+       23 +    return res.status(200).end(ipData);                                                                                                                   
+       24 +  }                                                                                                                                                       
+       25 +                                                                                                                                                          
+       26 +  // Tekli fetch                                                                                                                                          
+       27 +  if (action === 'fetch') {                                                                                                                               
+       28 +    var sku = req.query.sku;                                                                                                                              
+       29 +    var slug = req.query.slug;                                                                                                                            
+       30 +    if (!sku || !slug) {                                                                                                                                  
+       31 +      return res.status(400).json({ error: 'sku ve slug gerekli' });                                                                                      
+       32 +    }                                                                                                                                                     
+       33 +    var result = await fetchHB(sku, slug);                                                                                                                
+       34 +    return res.status(result.error ? 502 : 200).json(result);                                                                                             
+       35 +  }                                                                                                                                                       
+       36 +                                                                                                                                                          
+       37 +  // Toplu fetch                                                                                                                                          
+       38 +  if (action === 'batch') {                                                                                                                               
+       39 +    var body = req.body;                                                                                                                                  
+       40 +    if (!Array.isArray(body) || body.length === 0) {                                                                                                      
+       41 +      return res.status(400).json({ error: 'body array olmali' });                                                                                        
+       42 +    }                                                                                                                                                     
+       43 +    if (body.length > 10) {                                                                                                                               
+       44 +      body = body.slice(0, 10);                                                                                                                           
+       45 +    }                                                                                                                                                     
+       46 +                                                                                                                                                          
+       47 +    var results = await Promise.all(body.map(function(item) {                                                                                             
+       48 +      var t0 = Date.now();                                                                                                                                
+       49 +      return fetchHB(item.sku, item.slug).then(function(r) {                                                                                              
+       50 +        r.id = item.id || null;                                                                                                                           
+       51 +        r.sku = item.sku;                                                                                                                                 
+       52 +        r.duration_ms = Date.now() - t0;                                                                                                                  
+       53 +        return r;                                                                                                                                         
+       54 +      });                                                                                                                                                 
+       55 +    }));                                                                                                                                                  
+       56 +                                                                                                                                                          
+       57 +    return res.status(200).json({ results: results });                                                                                                    
+       58 +  }                                                                                                                                                       
+       59 +                                                                                                                                                          
+       60 +  return res.status(400).json({ error: 'gecersiz action' });                                                                                              
+       61 +}                                                                                                                                                         
+       62 +                                                                                                                                                          
+       63 +function httpGet(url, headers) {                                                                                                                          
+       64 +  return new Promise(function(resolve, reject) {                                                                                                          
+       65 +    var parsed = new URL(url);                                                                                                                            
+       66 +    var opts = {                                                                                                                                          
+       67 +      hostname: parsed.hostname,                                                                                                                          
+       68 +      port: 443,                                                                                                                                          
+       69 +      path: parsed.pathname + parsed.search,                                                                                                              
+       70 +      method: 'GET',                                                                                                                                      
+       71 +      headers: headers                                                                                                                                    
+       72 +    };                                                                                                                                                    
+       73 +    var req = https.request(opts, function(resp) {                                                                                                        
+       74 +      var chunks = [];                                                                                                                                    
+       75 +      resp.on('data', function(c) { chunks.push(c); });                                                                                                   
+       76 +      resp.on('end', function() { resolve(Buffer.concat(chunks).toString()); });                                                                          
+       77 +    });                                                                                                                                                   
+       78 +    req.on('error', reject);                                                                                                                              
+       79 +    req.end();                                                                                                                                            
+       80 +  });                                                                                                                                                     
+       81 +}                                                                                                                                                         
+       82 +                                                                                                                                                          
+       83 +async function fetchHB(sku, slug) {                                                                                                                       
+       84 +  var apiUrl = 'https://www.hepsiburada.com/api/v1/productDetail/sku/' + sku + '?name=' + slug;                                                           
+       85 +  var referer = 'https://www.hepsiburada.com/' + slug + '-p-' + sku;                                                                                      
+       86 +                                                                                                                                                          
+       87 +  var headers = {                                                                                                                                         
+       88 +    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',                      
+       89 +    'Accept': '*/*',                                                                                                                                      
+       90 +    'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',                                                                                             
+       91 +    'Referer': referer,                                                                                                                                   
+       92 +    'Origin': 'https://www.hepsiburada.com',                                                                                                              
+       93 +    'sec-ch-ua': '"Google Chrome";v="131", "Chromium";v="131"',                                                                                           
+       94 +    'sec-ch-ua-mobile': '?0',                                                                                                                             
+       95 +    'sec-ch-ua-platform': '"Windows"',                                                                                                                    
+       96 +    'sec-fetch-dest': 'empty',                                                                                                                            
+       97 +    'sec-fetch-mode': 'cors',                                                                                                                             
+       98 +    'sec-fetch-site': 'same-origin'                                                                                                                       
+       99 +  };                                                                                                                                                      
+      100 +                                                                                                                                                          
+      101 +  try {                                                                                                                                                   
+      102 +    var text = await httpGet(apiUrl, headers);                                                                                                            
+      103 +                                                                                                                                                          
+      104 +    var data;                                                                                                                                             
+      105 +    try {                                                                                                                                                 
+      106 +      data = JSON.parse(text);                                                                                                                            
+      107 +    } catch (e) {                                                                                                                                         
+      108 +      return { error: 'JSON parse hatasi', raw_length: text.length };                                                                                     
+      109 +    }                                                                                                                                                     
+      110 +                                                                                                                                                          
+      111 +    if (data.statusCode && data.statusCode !== 200) {                                                                                                     
+      112 +      return { error: 'HTTP ' + data.statusCode, status_code: data.statusCode };                                                                          
+      113 +    }                                                                                                                                                     
+      114 +                                                                                                                                                          
+      115 +    // Redirect kontrolu                                                                                                                                  
+      116 +    if (data.redirection && data.redirection.url && (!data.data || !data.data.product)) {                                                                 
+      117 +      return { redirect: true, redirect_url: data.redirection.url, statusCode: data.statusCode || 0 };                                                    
+      118 +    }                                                                                                                                                     
+      119 +    if (data.redirectUrl && (!data.data || !data.data.product)) {                                                                                         
+      120 +      return { redirect: true, redirect_url: data.redirectUrl, statusCode: data.statusCode || 0 };                                                        
+      121 +    }                                                                                                                                                     
+      122 +                                                                                                                                                          
+      123 +    // Stok kontrolu                                                                                                                                      
+      124 +    var product = (data.data && data.data.product) ? data.data.product : null;                                                                            
+      125 +    var inStock = product && product.stockInformation && product.stockInformation.isInStock === true;                                                     
+      126 +                                                                                                                                                          
+      127 +    if (product && !inStock) {                                                                                                                            
+      128 +      return { success: true, in_stock: false, product_name: product.name || '', data: data };                                                            
+      129 +    }                                                                                                                                                     
+      130 +                                                                                                                                                          
+      131 +    return { success: true, in_stock: true, data: data };                                                                                                 
+      132 +                                                                                                                                                          
+      133 +  } catch (e) {                                                                                                                                           
+      134 +    return { error: e.message || 'fetch hatasi' };                                                                                                        
+      135 +  }                                                                                                                                                       
+      136 +}
