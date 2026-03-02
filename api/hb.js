@@ -1,5 +1,7 @@
-{                                                                                                                                                                      "functions": {
-      "api/hb.js": {                                                                                                                                                         "maxDuration": 60                                                                                                                                            
-      }
+{
+  "functions": {
+    "api/hb.js": {
+      "maxDuration": 60
     }
   }
+}
