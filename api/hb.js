@@ -1,8 +1,8 @@
-   1 +import https from 'https';                                                                                                                                
+    1 +var https = require('https');                                                                                                                             
         2 +                                                                                                                                                          
         3 +var SECRET_KEY = 'avci_hb_2026';                                                                                                                          
         4 +                                                                                                                                                          
-        5 +export default async function handler(req, res) {                                                                                                         
+        5 +module.exports = async function handler(req, res) {                                                                                                       
         6 +  res.setHeader('Access-Control-Allow-Origin', '*');                                                                                                      
         7 +  res.setHeader('Content-Type', 'application/json');                                                                                                      
         8 +                                                                                                                                                          
@@ -58,7 +58,7 @@
        58 +  }                                                                                                                                                       
        59 +                                                                                                                                                          
        60 +  return res.status(400).json({ error: 'gecersiz action' });                                                                                              
-       61 +}                                                                                                                                                         
+       61 +};                                                                                                                                                        
        62 +                                                                                                                                                          
        63 +function httpGet(url, headers) {                                                                                                                          
        64 +  return new Promise(function(resolve, reject) {                                                                                                          
@@ -80,7 +80,7 @@
        80 +  });                                                                                                                                                     
        81 +}                                                                                                                                                         
        82 +                                                                                                                                                          
-       83 +async function fetchHB(sku, slug) {                                                                                                                       
+       83 +function fetchHB(sku, slug) {                                                                                                                             
        84 +  var apiUrl = 'https://www.hepsiburada.com/api/v1/productDetail/sku/' + sku + '?name=' + slug;                                                           
        85 +  var referer = 'https://www.hepsiburada.com/' + slug + '-p-' + sku;                                                                                      
        86 +                                                                                                                                                          
@@ -98,39 +98,35 @@
        98 +    'sec-fetch-site': 'same-origin'                                                                                                                       
        99 +  };                                                                                                                                                      
       100 +                                                                                                                                                          
-      101 +  try {                                                                                                                                                   
-      102 +    var text = await httpGet(apiUrl, headers);                                                                                                            
-      103 +                                                                                                                                                          
-      104 +    var data;                                                                                                                                             
-      105 +    try {                                                                                                                                                 
-      106 +      data = JSON.parse(text);                                                                                                                            
-      107 +    } catch (e) {                                                                                                                                         
-      108 +      return { error: 'JSON parse hatasi', raw_length: text.length };                                                                                     
-      109 +    }                                                                                                                                                     
-      110 +                                                                                                                                                          
-      111 +    if (data.statusCode && data.statusCode !== 200) {                                                                                                     
-      112 +      return { error: 'HTTP ' + data.statusCode, status_code: data.statusCode };                                                                          
-      113 +    }                                                                                                                                                     
-      114 +                                                                                                                                                          
-      115 +    // Redirect kontrolu                                                                                                                                  
-      116 +    if (data.redirection && data.redirection.url && (!data.data || !data.data.product)) {                                                                 
-      117 +      return { redirect: true, redirect_url: data.redirection.url, statusCode: data.statusCode || 0 };                                                    
+      101 +  return httpGet(apiUrl, headers).then(function(text) {                                                                                                   
+      102 +    var data;                                                                                                                                             
+      103 +    try {                                                                                                                                                 
+      104 +      data = JSON.parse(text);                                                                                                                            
+      105 +    } catch (e) {                                                                                                                                         
+      106 +      return { error: 'JSON parse hatasi', raw_length: text.length };                                                                                     
+      107 +    }                                                                                                                                                     
+      108 +                                                                                                                                                          
+      109 +    if (data.statusCode && data.statusCode !== 200) {                                                                                                     
+      110 +      return { error: 'HTTP ' + data.statusCode, status_code: data.statusCode };                                                                          
+      111 +    }                                                                                                                                                     
+      112 +                                                                                                                                                          
+      113 +    if (data.redirection && data.redirection.url && (!data.data || !data.data.product)) {                                                                 
+      114 +      return { redirect: true, redirect_url: data.redirection.url, statusCode: data.statusCode || 0 };                                                    
+      115 +    }                                                                                                                                                     
+      116 +    if (data.redirectUrl && (!data.data || !data.data.product)) {                                                                                         
+      117 +      return { redirect: true, redirect_url: data.redirectUrl, statusCode: data.statusCode || 0 };                                                        
       118 +    }                                                                                                                                                     
-      119 +    if (data.redirectUrl && (!data.data || !data.data.product)) {                                                                                         
-      120 +      return { redirect: true, redirect_url: data.redirectUrl, statusCode: data.statusCode || 0 };                                                        
-      121 +    }                                                                                                                                                     
+      119 +                                                                                                                                                          
+      120 +    var product = (data.data && data.data.product) ? data.data.product : null;                                                                            
+      121 +    var inStock = product && product.stockInformation && product.stockInformation.isInStock === true;                                                     
       122 +                                                                                                                                                          
-      123 +    // Stok kontrolu                                                                                                                                      
-      124 +    var product = (data.data && data.data.product) ? data.data.product : null;                                                                            
-      125 +    var inStock = product && product.stockInformation && product.stockInformation.isInStock === true;                                                     
+      123 +    if (product && !inStock) {                                                                                                                            
+      124 +      return { success: true, in_stock: false, product_name: product.name || '', data: data };                                                            
+      125 +    }                                                                                                                                                     
       126 +                                                                                                                                                          
-      127 +    if (product && !inStock) {                                                                                                                            
-      128 +      return { success: true, in_stock: false, product_name: product.name || '', data: data };                                                            
-      129 +    }                                                                                                                                                     
-      130 +                                                                                                                                                          
-      131 +    return { success: true, in_stock: true, data: data };                                                                                                 
-      132 +                                                                                                                                                          
-      133 +  } catch (e) {                                                                                                                                           
-      134 +    return { error: e.message || 'fetch hatasi' };                                                                                                        
-      135 +  }                                                                                                                                                       
-      136 +}
+      127 +    return { success: true, in_stock: true, data: data };                                                                                                 
+      128 +                                                                                                                                                          
+      129 +  }).catch(function(e) {                                                                                                                                  
+      130 +    return { error: e.message || 'fetch hatasi' };                                                                                                        
+      131 +  });                                                                                                                                                     
+      132 +} 
