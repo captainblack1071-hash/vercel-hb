@@ -18,8 +18,8 @@ module.exports = async function handler(req, res) {
   var action = req.query.action || 'fetch';
 
   if (action === 'ip') {
-    var ipData = await httpGet('https://api.ipify.org?format=json', {});
-    return res.status(200).end(ipData);
+    var ipRes = await httpGet('https://api.ipify.org?format=json', {});
+    return res.status(200).end(ipRes.body);
   }
 
   if (action === 'fetch') {
@@ -70,7 +70,10 @@ function httpGet(url, headers) {
     var r = https.request(opts, function(resp) {
       var chunks = [];
       resp.on('data', function(c) { chunks.push(c); });
-      resp.on('end', function() { resolve(Buffer.concat(chunks).toString()); });
+      resp.on('end', function() {
+        var body = Buffer.concat(chunks).toString();
+        resolve({ statusCode: resp.statusCode, body: body });
+      });
     });
     r.on('error', reject);
     r.end();
@@ -95,12 +98,16 @@ function fetchHB(sku, slug) {
     'sec-fetch-site': 'same-origin'
   };
 
-  return httpGet(apiUrl, headers).then(function(text) {
+  return httpGet(apiUrl, headers).then(function(result) {
+    if (result.statusCode !== 200) {
+      return { error: 'HTTP ' + result.statusCode, status_code: result.statusCode, raw_preview: result.body.substring(0, 200) };
+    }
+
     var data;
     try {
-      data = JSON.parse(text);
+      data = JSON.parse(result.body);
     } catch (e) {
-      return { error: 'JSON parse hatasi', raw_length: text.length };
+      return { error: 'JSON parse hatasi', raw_length: result.body.length, raw_preview: result.body.substring(0, 200) };
     }
 
     if (data.statusCode && data.statusCode !== 200) {
