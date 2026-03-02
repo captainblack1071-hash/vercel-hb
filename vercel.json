@@ -1,5 +1,8 @@
 {
-  "routes": [
-    { "src": "/(.*)", "dest": "/api/hb.js" }
-  ]
+  "functions": {
+    "api/hb.js": {
+      "maxDuration": 60
+    }
+  }
 }
+
